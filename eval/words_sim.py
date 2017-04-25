@@ -1,18 +1,21 @@
 #!/usr/bin/env python3
 """
 Cross-Lingual Semantic Similarity ofWords as the Similarity of Their
-SemanticWord Responses"""
+SemanticWord Responses.
+version 1.1
+similarity search algorithm:  brute-force search -> KDTree search speed up ~10x
+remove multiprocessing
+"""
 import click
-import multiprocessing
 import time
 from scipy import spatial
 import functools
 import numpy as np
+from scipy.spatial import KDTree
 from sklearn import preprocessing
 from collections import defaultdict
 import gzip
 import os
-import queue
 
 
 def timeit(func):
@@ -26,65 +29,27 @@ def timeit(func):
     return newfunc
 
 
-def computeDistance(word1, word2, emb1, emb2):
-    try:
-        w1 = emb1[word1]
-        w2 = emb2[word2]
-    except KeyError:
-        return float(0.0)
-    return w1.dot(w2)
-
-
-def get_top_k(word1, emb1, emb2):
-    bestw = [''] * 10
-    bestd = [float(0)] * 10
-    for j in emb2.keys():
-        dist = computeDistance(word1, j, emb1, emb2)
-        if dist > bestd[-1]:
-            for i, a in enumerate(bestd):
-                if dist > a:
-                    bestw = bestw[:i] + [j] + bestw[i:9]
-                    bestd = bestd[:i] + [dist] + bestd[i:9]
-                    break
-    return bestw, bestd
-
-
-def sub_computeDist(emb1, emb2, inqueue, outqueue):
-    while not inqueue.empty():
-        try:
-            lin1, lin2s = inqueue.get(timeout=2)
-        except queue.Empty:
-            os._exit(0)
-        top, topd = get_top_k(lin1, emb1, emb2)
-        for i, v in enumerate(top):
-            if v in lin2s:
-                outqueue.put(float(1/(i+1)))
-                break
-        print("remind {:5}".format(inqueue.qsize()), end='\r')
-    os._exit(0)
-
-
 @timeit
 def computeDistMatrices(emb1, emb2, gold):
     correct = 0
     MRR = float(0.0)
-    inqueue = multiprocessing.Queue()
-    outqueue = multiprocessing.Queue()
-    for w in gold.keys():
-        inqueue.put((w, gold[w]))
-    pool = []
-    for i in range(10):
-        p = multiprocessing.Process(target=sub_computeDist,
-                                    args=(emb1, emb2, inqueue, outqueue, ))
-        p.start()
-        pool.append(p)
-    for i in pool:
-        i.join()
+    vob2 = []
+    matrix2 = []
+    for i in emb2.keys():
+        vob2.append(i)
+        matrix2.append(emb2[i])
+    matrix2 = np.array(matrix2)
+
+    kdtree = KDTree(matrix2, leafsize=100)
+    for gold_en, gold_trans in gold.items():
+        d, index = kdtree.query(emb1[gold_en], k=10)
+        for i in index:
+            if vob2[i] in gold_trans:
+                correct += 1
+                MRR += float(1/(i+1))
+                break
+
     print('\nfinished!\n')
-    while not outqueue.empty():
-        i = outqueue.get()
-        correct += 1
-        MRR += i
     print('{}/{} % age {}'.format(correct, len(gold.keys()),
           float(correct/len(gold.keys()))))
     print('{}/{} MRR {}'.format(MRR, len(gold.keys()),
