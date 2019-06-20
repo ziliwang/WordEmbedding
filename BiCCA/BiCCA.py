@@ -132,6 +132,8 @@ def main(test, base, align, project, r):
     cca.fit(subtestX, aligned_testX)
     ccaed_test = trans(testX, cca.x_weights_)
     ccaed_base = trans(baseX, cca.y_weights_)
+    ccaed_test = preprocessing.normalize(ccaed_test)
+    ccaed_base = preprocessing.normalize(ccaed_base)
     output(outdir, test, ccaed_test, testedWordVectors)
     output(outdir, base, ccaed_base, basedWordVectors)
 
